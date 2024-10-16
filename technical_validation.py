@@ -24,7 +24,7 @@ def compute_metrics(eval_pred):
     }
 
 # Load data
-data = pd.read_excel(r"\train_pat_be.xlsx")
+data = pd.read_feather(r"\data\train.feather")
 dataset = Dataset.from_pandas(data)
 
 # Define KFold cross-validation
