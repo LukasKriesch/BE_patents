@@ -28,9 +28,9 @@ def compute_metrics(y_pred, y_test):
         'f1': f1
     }
 
-data = pd.read_excel(r"\train_pat_be.xlsx")
+data = pd.read_feather(r"\data\train_pat.feather")
 
-train, eval_ds=train_test_split(data, test_size=0.3, random_state=42)
+train, eval_ds=train_test_split(data, test_size=0.5, random_state=42)
 
 eval_ds=Dataset.from_pandas(eval_ds)
 
