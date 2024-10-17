@@ -4,4 +4,4 @@ This repository contains the code used for creating a [dataset of bioeconomy-rel
   
   topic_modeling_be_pats.py: Provides the code for generating a topic model with the  the [BERTopic-Framework](https://github.com/MaartenGr/BERTopic).
   
-  technical_validation.py: Includes the code for comparing different pretrained SBERT models and evaluating them against keyword-based approaches for identifying bioeconomy-related inventions.
+  technical_validation.py: Includes the code for comparing different pretrained SBERT models and evaluating them against keyword-based approaches for identifying bioeconomy-related inventions. This also includes code for a stratified validation of the classification results by CPC section.
