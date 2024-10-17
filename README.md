@@ -7,5 +7,5 @@ The repository contains three files:
   
   `technical_validation.py`: Includes the code for comparing different pretrained SBERT models and evaluating them against keyword-based approaches for identifying bioeconomy-related inventions. This also includes code for a stratified validation of the classification results by CPC section.
 
-The data folder contains the training data used in `train_pat.py`. The validation folder contains the data used for the stratified validation of the classification results by CPC section.
+The data folder contains the training data used in `train_pat.py`. The validation folder in the data folder contains the data used for the stratified validation of the classification results by CPC section.
 
