@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Apr 16 13:40:26 2024
-
-@author: tesla
-"""
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import KFold
@@ -11,9 +5,23 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from datasets import Dataset
 from setfit import SetFitModel, Trainer, TrainingArguments
 import torch
+import matplotlib.pyplot as plt
+from matplotlib_venn import venn2
+import os
+from os import listdir
+from tqdm import tqdm
 
-
+#################### PART 1: COMPARISON OF PRETRAINED LLMS ####################
 def compute_metrics(eval_pred):
+    """
+    Compute evaluation metrics for model predictions.
+    
+    Args:
+        eval_pred (tuple): A tuple containing the logits and labels.
+    
+    Returns:
+        dict: A dictionary containing accuracy, precision, recall, and F1 score.
+    """
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
     return {
@@ -23,43 +31,39 @@ def compute_metrics(eval_pred):
         'f1': float(f1_score(labels, predictions, average='weighted'))
     }
 
-# Load data
-data = pd.read_feather(r"\data\train.feather")
+# Load dataset from a feather file
+data = pd.read_feather("train.feather")
 dataset = Dataset.from_pandas(data)
 
-# Define KFold cross-validation
+# Define K-Fold cross-validation
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-# Define models to train
+# Define model names for training
 model_names = [
     "AI-Growth-Lab/PatentSBERTa",
-    "mixedbread-ai/mxbai-embed-large-v1",  # Replace with actual model names
+    "mixedbread-ai/mxbai-embed-large-v1",
     "BAAI/bge-large-en-v1.5"
 ]
 
-# Results storage
+# Dictionary to store evaluation results for each model
 results = {}
 
-# Cross-validation across each model
+# Cross-validation and training for each model
 for model_name in model_names:
     fold_results = []
     for train_index, val_index in kf.split(dataset):
-        # Splitting data into training and validation sets
+        # Split data into training and validation sets
         train_ds = dataset.select(train_index)
         eval_ds = dataset.select(val_index)
 
-        # Load a SetFit model from Hub
+        # Load the SetFit model
         model = SetFitModel.from_pretrained(model_name)
 
-        # Setup training arguments
+        # Configure training arguments
         args = TrainingArguments(
-            output_dir=f'./results_{model_name}',    # Output directory for each model
-            #evaluation_strategy="epoch",
-            #save_strategy="epoch",
-            #load_best_model_at_end=True,
+            output_dir=f'./results_{model_name}',
             batch_size=4,
             num_train_epochs=1,
-            #logging_dir=f'./logs_{model_name}',      # Logging directory for each model
         )
 
         # Initialize the trainer
@@ -73,82 +77,53 @@ for model_name in model_names:
         # Train and evaluate the model
         trainer.train()
         eval_result = trainer.evaluate(eval_ds)
-        print(model_name)
-        print(eval_result)
+        print(model_name, eval_result)
         fold_results.append(eval_result)
 
-    # Store average results from folds for each model
+    # Store average results across all folds
     avg_metrics = {key: np.mean([dic[key] for dic in fold_results]) for key in fold_results[0]}
     results[model_name] = avg_metrics
 
-# Print the results for all models
+# Output the results for all models
 print(results)
 
-import pandas as pd
-import os
-from os import listdir
-import numpy as np
-from tqdm import tqdm
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib_venn import venn2
-
-# read classified patent abstracts
-folder=r"D:\pat_split_patbert"
-
-files=[os.path.join(folder,f) for f in listdir(folder)]
-be_pats=pd.DataFrame()
+#################### PART 2: COMPARISON WITH RULE-BASED APPROACHES ####################
+# Load patent classification data from multiple files
+folder = r"D:\pat_split_patbert"
+files = [os.path.join(folder, f) for f in listdir(folder)]
+be_pats = pd.DataFrame()
 
 for file in tqdm(files):
-    pat=pd.read_feather(file)
-    #pat=pat[pat["prob_bioeconomy_new"]>0.5]
-    be_pats=pd.concat([be_pats,pat])
+    pat = pd.read_feather(file)
+    be_pats = pd.concat([be_pats, pat])
 
-#read abstracts
-abstracts=pd.read_feather(r"\abstracts.feather")
-#select patents with english abstracts
-abstracts=abstracts[abstracts["appln_abstract_lg"]=="en"]
-#read cpc code data
-tls_224=pd.read_feather(r"tls_224.feather")
+# Filter patents with a high probability of being in the bioeconomy
+b = be_pats[be_pats["prob_BE"] > 0.5]
 
-# Step 1: Merge abstracts with be_pats on appln_abstract
+# Load additional data: abstracts and CPC code information
+abstracts = pd.read_feather(r"\abstracts.feather")
+abstracts = abstracts[abstracts["appln_abstract_lg"] == "en"]
+tls_224 = pd.read_feather(r"tls_224.feather")
+
+# Merge abstracts with bioeconomy patent data
 pat = pd.merge(abstracts, be_pats[["appln_abstract", "prob_BE"]], on="appln_abstract", how="left")
-
-# Step 2: Merge the resulting dataframe with tls_224 on appln_id
 pat = pd.merge(pat, tls_224, on="appln_id", how="left")
 
-# Step 3: Create the 'cpc' column with the first 4 digits of 'cpc_class_symbol'
+# Extract first 4 digits of 'cpc_class_symbol' for classification
 pat["cpc"] = pat["cpc_class_symbol"].str[:4]
 
-# Step 4: Filter entries with prob_BE_mixedbread higher than 0.5
+# Filter patents with high bioeconomy probability and aggregate by CPC
 be_pats = pat[pat["prob_BE"] > 0.5]
-
-# Step 5: Group by 'cpc' and compute the size of each group for high prob_BE patents
 be_pats_g = be_pats.groupby("cpc").size().reset_index(name="size_be")
-
-# Step 6: Group by 'cpc' and compute the size of each group for all patents
 pat_g = pat.groupby("cpc").size().reset_index(name="size_all")
 
-# Step 7: Merge the two groupby results on 'cpc'
-merged_g = pd.merge(pat_g, be_pats_g, on="cpc", how="left")
+# Merge and compute share metrics for bioeconomy patents
+merged_g = pd.merge(pat_g, be_pats_g, on="cpc", how="left").fillna(0)
+merged_g["share_be"] = (merged_g["size_be"] / merged_g["size_be"].sum()) * 100
+merged_g["share_cpc"] = (merged_g["size_be"] / merged_g["size_all"]) * 100
+merged_g["total_share"] = (merged_g["size_all"] / sum(merged_g["size_all"])) * 100
 
-# Step 8: Compute the share of high prob_BE patents among all high prob_BE patents
-merged_g["share_be"] = merged_g["size_be"] / merged_g["size_be"].sum()
-
-# Step 9: Compute the share of high prob_BE patents within each 'cpc' class
-merged_g["share_cpc"] = merged_g["size_be"] / merged_g["size_all"]
-
-# Step 10: Fill NaN values with 0 (for cases where a cpc class has no high prob_BE patents)
-merged_g = merged_g.fillna(0)
-
-len(merged_g[merged_g["size_be"]==0])
-merged_g["total_share"]=merged_g["size_all"]/sum(merged_g["size_all"])
-
-merged_g["total_share"]=merged_g["total_share"]*100
-
-merged_g["share_be"]=merged_g["share_be"]*100
-
-#bioeconomy ipc codes as Frietsch et al. (2017)
+# Bioeconomy codes list from Frietsch et al. (2017)
 refs=["A01B", "A01C", "A01D", "A01F", "A01G", "A01L", "A01M", "A61D",
 "B02B", "B29C", "B29D", "B29K", "B29L", "B99Z", "C03B", "C08J",
 "C12L"," C13B5", "C13B15", "C13B25", "C13B45,A01P", "C05B", "C05C", "C05D", "C05F", "C05G",
@@ -176,64 +151,91 @@ refs=["A01B", "A01C", "A01D", "A01F", "A01G", "A01L", "A01M", "A61D",
 "C08L89", "C09D11", "C09D189", "C09J189","A01K", "A01M", "A22B", "A61D", "A23N17","F25D", "A21B", "A47J" 
 ]
 
-#read and merge ipc code data
-tls_209=pd.read_csv(r"tls209_part01.csv")
-tls_209_2=pd.read_csv(r"tls209_part02.csv")
-tls_209=pd.concat([tls_209,tls_209_2])
-pat=pd.merge(pat,tls_209[["ipc_class_symbol","appln_id"]],on="appln_id",how="left")
-pat["ipc_class_symbol"]=pat["ipc_class_symbol"].astype(str)
+# Load and merge IPC code data for further filtering
+tls_209 = pd.concat([
+    pd.read_csv(r"tls209_part01.csv"),
+    pd.read_csv(r"tls209_part02.csv")
+])
+pat = pd.merge(pat, tls_209[["ipc_class_symbol", "appln_id"]], on="appln_id", how="left")
 
-# Function to check if a CPC code matches any code in the list
-def cpc_code_matches(cpc_code, cpc_code_list):
-    for code in cpc_code_list:
-        if code in cpc_code:
-            return True
-    return False
-
-# Filter the DataFrame to extract patents with matching CPC codes
-matching_patents = pat[pat["ipc_class_symbol"].apply(lambda x: cpc_code_matches(x, refs))]
+# Filter patents matching specified CPC codes
+matching_patents = pat[pat["ipc_class_symbol"].apply(lambda x: any(code in x for code in refs))]
 
 required_cpc_codes = ['G01N27/327', 'C12M', 'C12N', 'C12P', 'C12Q', 'C12S']
 excluded_cpc_code = 'A61K'
+filtered_df = pat[pat['ipc_class_symbol'].apply(lambda x: any(code in x for code in required_cpc_codes) and excluded_cpc_code not in x)]
 
-# Function to check if any of the required CPC codes are present and the excluded CPC code is absent
-def match_cpc_codes(cpc_code):
-    return any(code in cpc_code for code in required_cpc_codes) and excluded_cpc_code not in cpc_code
+# Combine rule-based and NLP approach results
+matching_patents = pd.concat([matching_patents, filtered_df])
 
-# Apply the function to filter the DataFrame
-filtered_df = pat[pat['ipc_class_symbol'].apply(match_cpc_codes)]
-
-matching_patents=pd.concat([matching_patents,filtered_df])
-
-list1=list(matching_patents["appln_id"])
-b=pat[pat["prob_BE"]>0.5]
-
-list2=list(b["appln_id"])
-# Convert lists to sets for easy comparison
-set1 = set(list1)
-set2 = set(list2)
-
-# Find common elements
+# Compare patent sets using a Venn diagram
+set1 = set(matching_patents["appln_id"])
+set2 = set(b["appln_id"])
 common_elements = set1.intersection(set2)
 
-# Find unique elements in each list
-unique_to_list1 = set1 - set2
-unique_to_list2 = set2 - set1
-
 plt.rcParams['font.family'] = 'Calibri'
-
-# Create a Venn diagram with customized colors
 plt.figure(figsize=(8, 6))
 venn = venn2([set1, set2], ('Rule-based approach', 'NLP-approach'), set_colors=('skyblue', 'lightgreen'))
 
-# Format the labels with commas as thousands separators
+# Format Venn diagram labels with commas for thousands separators
 for label in venn.set_labels:
     if label:
-        label.set_fontsize(12)  # Adjust font size if necessary
+        label.set_fontsize(12)
 for label in venn.subset_labels:
     if label:
         label_text = label.get_text()
-        if label_text.isdigit():  # Check if the label is a digit
-            formatted_text = "{:,}".format(int(label_text))
-            label.set_text(formatted_text)
+        if label_text.isdigit():
+            label.set_text("{:,}".format(int(label_text)))
 
+#################### PART 3: STRATIFIED VALIDATION PER CPC SECTION ####################
+# Define overall performance metrics from active learning
+overall_metrics = {
+    'Accuracy': 0.9428,
+    'Precision': 0.9389,
+    'Recall': 0.9096,
+    'F1-Score': 0.9226
+}
+
+def compute_metrics(sample):
+    """
+    Compute evaluation metrics for a given sample.
+    
+    Args:
+        sample (DataFrame): DataFrame containing 'pred' and 'validation' columns.
+    
+    Returns:
+        dict: A dictionary with accuracy, precision, recall, and F1 score.
+    """
+    y_pred = sample['pred']
+    y_true = sample['validation']
+    return {
+        'Accuracy': accuracy_score(y_true, y_pred),
+        'Precision': precision_score(y_true, y_pred),
+        'Recall': recall_score(y_true, y_pred),
+        'F1-Score': f1_score(y_true, y_pred)
+    }
+
+# Load validation datasets for each CPC class
+samples = {cls: pd.read_excel(f"\data\sample_{cls.lower()}.xlsx") for cls in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'Y']}
+
+# Compute and plot deviations from overall metrics
+sample_metrics = {cls: compute_metrics(df) for cls, df in samples.items()}
+metrics = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
+
+fig, axes = plt.subplots(3, 3, figsize=(12, 12))
+axes = axes.flatten()
+
+for i, (cpc_class, metrics_dict) in enumerate(sample_metrics.items()):
+    x = np.arange(len(metrics))
+    deviations = [metrics_dict[m] - overall_metrics[m] for m in metrics]
+    axes[i].bar(x, deviations, color='skyblue')
+    axes[i].set_title(cpc_class, weight="bold", fontsize=14)
+    axes[i].set_xticks(x)
+    axes[i].set_xticklabels(metrics, fontsize=12)
+    axes[i].axhline(0, color='black', linestyle='--')
+    axes[i].set_ylim(-0.2, 0.2)
+    axes[i].set_ylabel('Deviation')
+
+plt.tight_layout()
+plt.suptitle("Performance Deviations Across CPC Classes", weight="bold", fontsize=18)
+plt.show()
